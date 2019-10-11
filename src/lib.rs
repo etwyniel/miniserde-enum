@@ -4,33 +4,9 @@ mod ser;
 pub(crate) mod attr;
 
 use syn::{
-    parse_macro_input, DeriveInput, Error, Data, Ident, Result,
+    parse_macro_input, DeriveInput, Error, Data,
 };
 use std::convert::From;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct Variant {
-    ident: Ident,
-    name: Option<String>,
-}
-
-impl From<&syn::Variant> for Variant {
-    fn from(v: &syn::Variant) -> Self {
-        let ident = v.ident.clone();
-        Variant {
-            ident,
-            name: None,
-        }
-    }
-}
 
 #[derive(Debug)]
 enum TagType {

@@ -3,7 +3,7 @@ use syn::{
     DeriveInput, Result, DataEnum, Error, Fields, FieldsNamed,
 };
 use quote::quote;
-use crate::{Variant, TagType};
+use crate::TagType;
 use crate::attr;
 
 pub fn derive(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream> {
@@ -14,7 +14,6 @@ pub fn derive(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream
         ));
     }
     let ident = &input.ident;
-    let variants: Vec<Variant> = enumeration.variants.iter().map(Into::into).collect();
     let tag_type = attr::tag_type(&input.attrs, &enumeration)?;
     let names = enumeration.variants
         .iter()
