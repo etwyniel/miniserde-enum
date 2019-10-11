@@ -1,10 +1,8 @@
-use proc_macro2::{TokenStream, Span};
-use syn::{
-    DeriveInput, Result, DataEnum, Error, Fields, FieldsNamed,
-};
-use quote::quote;
-use crate::TagType;
 use crate::attr;
+use crate::TagType;
+use proc_macro2::{Span, TokenStream};
+use quote::quote;
+use syn::{DataEnum, DeriveInput, Ident, Error, Fields, FieldsNamed, FieldsUnnamed, Result};
 
 pub fn derive(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream> {
     if input.generics.lt_token.is_some() || input.generics.where_clause.is_some() {
@@ -15,11 +13,13 @@ pub fn derive(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream
     }
     let ident = &input.ident;
     let tag_type = attr::tag_type(&input.attrs, &enumeration)?;
-    let names = enumeration.variants
+    let names = enumeration
+        .variants
         .iter()
         .map(attr::name_of_variant)
         .collect::<Result<Vec<_>>>()?;
-    let begin = enumeration.variants
+    let begin = enumeration
+        .variants
         .iter()
         .zip(names.iter())
         .map(|(variant, name)| {
@@ -33,18 +33,32 @@ pub fn derive(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream
                 }
                 Fields::Named(fields) => {
                     let implementation = serialize_named(&fields, name, &tag_type)?;
-                    let field_ident = fields.named.iter().map(|field| &field.ident).collect::<Vec<_>>();
+                    let field_ident = fields
+                        .named
+                        .iter()
+                        .map(|field| &field.ident)
+                        .collect::<Vec<_>>();
 
                     quote!{
                         #ident::#var_ident{#(#field_ident),*} => {
                             #implementation
                         }
                     }
-                },
-                Fields::Unnamed(fields) => quote!{_ => unimplemented!(),},
+                }
+                Fields::Unnamed(fields) => {
+                    let field_ident = (0..fields.unnamed.len())
+                        .map(|i| format!("f{}", i))
+                        .map(|id| Ident::new(&id, Span::call_site()))
+                        .collect::<Vec<_>>();
+                    let implementation = serialize_unnamed(fields, &field_ident, name, &tag_type)?;
+                    quote!{
+                        #ident::#var_ident(#(#field_ident),*) => {
+                            #implementation
+                        }
+                    }
+                }
             })
-        })
-        .collect::<Result<Vec<_>>>()?;
+        }).collect::<Result<Vec<_>>>()?;
 
     Ok(quote!{
         const _: () = {
@@ -87,10 +101,26 @@ fn serialize_unit(variant_name: &str, tag_type: &TagType) -> Result<TokenStream>
     })
 }
 
-fn serialize_named(fields: &FieldsNamed, variant_name: &str, tag_type: &TagType) -> Result<TokenStream> {
-    let field_ident = fields.named.iter().map(|field| &field.ident).collect::<Vec<_>>();
-    let field_name = fields.named.iter().map(attr::name_of_field).collect::<Result<Vec<_>>>()?;
-    let field_type = fields.named.iter().map(|field| &field.ty).collect::<Vec<_>>();
+fn serialize_named(
+    fields: &FieldsNamed,
+    variant_name: &str,
+    tag_type: &TagType,
+) -> Result<TokenStream> {
+    let field_ident = fields
+        .named
+        .iter()
+        .map(|field| &field.ident)
+        .collect::<Vec<_>>();
+    let field_name = fields
+        .named
+        .iter()
+        .map(attr::name_of_field)
+        .collect::<Result<Vec<_>>>()?;
+    let field_type = fields
+        .named
+        .iter()
+        .map(|field| &field.ty)
+        .collect::<Vec<_>>();
     Ok(if let TagType::External = tag_type {
         quote!{
             use miniserde::Serialize;
@@ -125,12 +155,15 @@ fn serialize_named(fields: &FieldsNamed, variant_name: &str, tag_type: &TagType)
         }
     } else {
         let (start, tag_arm) = if let TagType::Internal(ref tag) = &tag_type {
-            (0usize, quote!{
-                0 => miniserde::export::Some((
-                        miniserde::export::Cow::Borrowed(#tag),
-                        &#variant_name,
-                        )),
-            })
+            (
+                0usize,
+                quote!{
+                    0 => miniserde::export::Some((
+                            miniserde::export::Cow::Borrowed(#tag),
+                            &#variant_name,
+                            )),
+                },
+            )
         } else {
             (1, quote!())
         };
@@ -159,6 +192,90 @@ fn serialize_named(fields: &FieldsNamed, variant_name: &str, tag_type: &TagType)
             }
 
             miniserde::ser::Fragment::Map(miniserde::export::Box::new(__Map {
+                #(#field_ident),*,
+                state: #start,
+            }))
+        }
+    })
+}
+
+fn serialize_unnamed(
+    fields: &FieldsUnnamed,
+    field_ident: &Vec<Ident>,
+    variant_name: &str,
+    tag_type: &TagType,
+) -> Result<TokenStream> {
+    let field_type = fields
+        .unnamed
+        .iter()
+        .map(|field| &field.ty)
+        .collect::<Vec<_>>();
+    Ok(if let TagType::External = tag_type {
+        quote!{
+            use miniserde::Serialize;
+            #[derive(Serialize)]
+            struct __AsStruct<'__b> (#(&'__b #field_type),*);
+
+            struct __SuperMap<'__b> {
+                data: __AsStruct<'__b>,
+                state: miniserde::export::usize,
+            }
+
+            impl<'__a> miniserde::ser::Map for __SuperMap<'__a> {
+                fn next(&mut self) -> miniserde::export::Option<(miniserde::export::Cow<miniserde::export::str>, &dyn miniserde::Serialize)> {
+                    let __state = self.state;
+                    self.state = __state + 1;
+                    match __state {
+                        0 => miniserde::export::Some((
+                            miniserde::export::Cow::Borrowed(#variant_name),
+                            &self.data,
+                        )),
+                        _ => miniserde::export::None,
+                    }
+                }
+            }
+
+            miniserde::ser::Fragment::Map(miniserde::export::Box::new(__SuperMap {
+                data: __AsStruct { #(#field_ident),* },
+                state: 0,
+            }))
+        }
+    } else {
+        let (start, tag_arm) = if let TagType::Internal(ref tag) = &tag_type {
+            (
+                0usize,
+                quote!{
+                    0 => miniserde::export::Some((
+                            miniserde::export::Cow::Borrowed(#tag),
+                            &#variant_name,
+                            )),
+                },
+            )
+        } else {
+            (1, quote!())
+        };
+        let index = 1usize..;
+        quote!{
+            struct __Seq<'__a> {
+                #(#field_ident: &'__a #field_type),*,
+                state: miniserde::export::usize,
+            }
+
+            impl<'__a> miniserde::ser::Seq for __Seq<'__a> {
+                fn next(&mut self) -> miniserde::export::Option<&dyn miniserde::Serialize> {
+                    let __state = self.state;
+                    self.state = __state + 1;
+                    match __state {
+                        #tag_arm
+                        #(#index => {
+                            miniserde::export::Some(self.#field_ident)
+                        })*,
+                        _ => miniserde::export::None,
+                    }
+                }
+            }
+
+            miniserde::ser::Fragment::Seq(miniserde::export::Box::new(__Seq {
                 #(#field_ident),*,
                 state: #start,
             }))

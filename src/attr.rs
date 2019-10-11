@@ -1,5 +1,5 @@
-use syn::{Attribute, Error, Field, Fields, Lit, Meta, NestedMeta, Result, Variant, DataEnum};
 use crate::TagType;
+use syn::{Attribute, DataEnum, Error, Field, Fields, Lit, Meta, NestedMeta, Result, Variant};
 
 pub(crate) fn tag_type(attrs: &[Attribute], enumeration: &DataEnum) -> Result<TagType> {
     let mut tag_type = None;

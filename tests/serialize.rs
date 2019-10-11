@@ -9,10 +9,12 @@ fn test_internal() {
         A,
         #[serde(rename = "renamedB")]
         B,
-        C{x: i32},
+        C {
+            x: i32,
+        },
     }
     use Internal::*;
-    let example = [A, B, C{x: 2}];
+    let example = [A, B, C { x: 2 }];
     let actual = json::to_string(&example[..]);
     let expected = r#"[{"type":"A"},{"type":"renamedB"},{"type":"C","x":2}]"#;
     assert_eq!(actual, expected);
@@ -25,10 +27,12 @@ fn test_external() {
         A,
         #[serde(rename = "renamedB")]
         B,
-        C{x: i32},
+        C {
+            x: i32,
+        },
     }
     use External::*;
-    let example = [A, B, C{x: 2}];
+    let example = [A, B, C { x: 2 }];
     let actual = json::to_string(&example[..]);
     let expected = r#"["A","renamedB",{"C":{"x":2}}]"#;
     assert_eq!(actual, expected);
@@ -41,12 +45,14 @@ fn test_untagged() {
     enum Untagged {
         A,
         #[serde(rename = "renamedB")]
-        B,
-        C{x: i32},
+        B(i32, String),
+        C {
+            x: i32,
+        },
     }
     use Untagged::*;
-    let example = [A, B, C{x: 2}];
+    let example = [A, B(42, "everything".to_string()), C { x: 2 }];
     let actual = json::to_string(&example[..]);
-    let expected = r#"["A","renamedB",{"x":2}]"#;
+    let expected = r#"["A",[42,"everything"],{"x":2}]"#;
     assert_eq!(actual, expected);
 }
