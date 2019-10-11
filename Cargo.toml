@@ -1,0 +1,18 @@
+[package]
+name = "miniserde-enum"
+version = "0.1.0"
+authors = ["Aymeric Beringer <aymeric.beringer@epita.fr>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+proc-macro = true
+
+[dev-dependencies]
+miniserde = "0.1"
+
+[dependencies]
+syn = { version = "1.0", features = ["derive", "extra-traits"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+miniserde = "0.1" # TODO: remove
