@@ -86,9 +86,9 @@ fn serialize_unit(variant_name: &str, tag_type: &TagType) -> Result<TokenStream>
                     self.state = __state + 1;
                     match __state {
                         0 => miniserde::export::Some((
-                                miniserde::export::Cow::Borrowed(#tag),
-                                &#variant_name,
-                                )),
+                            miniserde::export::Cow::Borrowed(#tag),
+                            &#variant_name,
+                        )),
                         _ => miniserde::export::None,
                     }
                 }
@@ -129,8 +129,8 @@ fn serialize_named(
                 #(#field_ident: &'__b #field_type),*,
             }
 
-            struct __SuperMap<'__b> {
-                data: __AsStruct<'__b>,
+            struct __SuperMap<'__a> {
+                data: __AsStruct<'__a>,
                 state: miniserde::export::usize,
             }
 
@@ -159,9 +159,9 @@ fn serialize_named(
                 0usize,
                 quote!{
                     0 => miniserde::export::Some((
-                            miniserde::export::Cow::Borrowed(#tag),
-                            &#variant_name,
-                            )),
+                        miniserde::export::Cow::Borrowed(#tag),
+                        &#variant_name,
+                    )),
                 },
             )
         } else {
@@ -182,9 +182,9 @@ fn serialize_named(
                         #tag_arm
                         #(#index => {
                             miniserde::export::Some((
-                                    miniserde::export::Cow::Borrowed(#field_name),
-                                    self.#field_ident,
-                                    ))
+                                miniserde::export::Cow::Borrowed(#field_name),
+                                self.#field_ident,
+                            ))
                         })*,
                         _ => miniserde::export::None,
                     }
@@ -201,7 +201,7 @@ fn serialize_named(
 
 fn serialize_unnamed(
     fields: &FieldsUnnamed,
-    field_ident: &Vec<Ident>,
+    field_ident: &[Ident],
     variant_name: &str,
     tag_type: &TagType,
 ) -> Result<TokenStream> {
@@ -210,74 +210,72 @@ fn serialize_unnamed(
         .iter()
         .map(|field| &field.ty)
         .collect::<Vec<_>>();
+    let index = 0usize..;
+    let seq = quote!{
+        struct __Seq<'__a> {
+            #(#field_ident: &'__a #field_type),*,
+            state: miniserde::export::usize,
+        }
+
+        impl<'__a> miniserde::ser::Seq for __Seq<'__a> {
+            fn next(&mut self) -> miniserde::export::Option<&dyn miniserde::Serialize> {
+                let __state = self.state;
+                self.state = __state + 1;
+                match __state {
+                    #(#index => {
+                        miniserde::export::Some(self.#field_ident)
+                    })*,
+                    _ => miniserde::export::None,
+                }
+            }
+        }
+    };
     Ok(if let TagType::External = tag_type {
         quote!{
-            use miniserde::Serialize;
-            #[derive(Serialize)]
-            struct __AsStruct<'__b> (#(&'__b #field_type),*);
+            #seq
 
-            struct __SuperMap<'__b> {
-                data: __AsStruct<'__b>,
-                state: miniserde::export::usize,
+            struct __AsStruct<'__a> (#(&'__a #field_type),*);
+
+            impl<'__a> miniserde::Serialize for __AsStruct<'__a> {
+                fn begin(&self) -> miniserde::ser::Fragment {
+                    let __AsStruct(#(#field_ident),*) = self;
+                    miniserde::ser::Fragment::Seq(miniserde::export::Box::new(__Seq {
+                        #(#field_ident),*,
+                        state: 0,
+                    }))
+                }
+            }
+
+            struct __SuperMap<'__a> {
+                data: __AsStruct<'__a>,
+                state: bool,
             }
 
             impl<'__a> miniserde::ser::Map for __SuperMap<'__a> {
                 fn next(&mut self) -> miniserde::export::Option<(miniserde::export::Cow<miniserde::export::str>, &dyn miniserde::Serialize)> {
-                    let __state = self.state;
-                    self.state = __state + 1;
-                    match __state {
-                        0 => miniserde::export::Some((
+                    if self.state {
+                        return miniserde::export::None;
+                    }
+                    self.state = true;
+                    miniserde::export::Some((
                             miniserde::export::Cow::Borrowed(#variant_name),
                             &self.data,
-                        )),
-                        _ => miniserde::export::None,
-                    }
+                    ))
                 }
             }
 
             miniserde::ser::Fragment::Map(miniserde::export::Box::new(__SuperMap {
-                data: __AsStruct { #(#field_ident),* },
-                state: 0,
+                data: __AsStruct ( #(#field_ident),* ),
+                state: false,
             }))
         }
     } else {
-        let (start, tag_arm) = if let TagType::Internal(ref tag) = &tag_type {
-            (
-                0usize,
-                quote!{
-                    0 => miniserde::export::Some((
-                            miniserde::export::Cow::Borrowed(#tag),
-                            &#variant_name,
-                            )),
-                },
-            )
-        } else {
-            (1, quote!())
-        };
-        let index = 1usize..;
         quote!{
-            struct __Seq<'__a> {
-                #(#field_ident: &'__a #field_type),*,
-                state: miniserde::export::usize,
-            }
-
-            impl<'__a> miniserde::ser::Seq for __Seq<'__a> {
-                fn next(&mut self) -> miniserde::export::Option<&dyn miniserde::Serialize> {
-                    let __state = self.state;
-                    self.state = __state + 1;
-                    match __state {
-                        #tag_arm
-                        #(#index => {
-                            miniserde::export::Some(self.#field_ident)
-                        })*,
-                        _ => miniserde::export::None,
-                    }
-                }
-            }
+            #seq
 
             miniserde::ser::Fragment::Seq(miniserde::export::Box::new(__Seq {
                 #(#field_ident),*,
-                state: #start,
+                state: 0,
             }))
         }
     })
