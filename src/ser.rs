@@ -1,16 +1,12 @@
 use crate::attr;
 use crate::TagType;
+use crate::bound;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{DataEnum, DeriveInput, Ident, Error, Fields, FieldsNamed, FieldsUnnamed, Result};
+use syn::{DataEnum, DeriveInput, Ident, Error, Fields, FieldsNamed, FieldsUnnamed, Result, parse_quote};
 
 pub fn derive(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream> {
-    if input.generics.lt_token.is_some() || input.generics.where_clause.is_some() {
-        return Err(Error::new(
-            Span::call_site(),
-            "Enums with generics are not supported",
-        ));
-    }
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let ident = &input.ident;
     let tag_type = attr::tag_type(&input.attrs, &enumeration)?;
     let names = enumeration
@@ -32,7 +28,7 @@ pub fn derive(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream
                     }
                 }
                 Fields::Named(fields) => {
-                    let implementation = serialize_named(&fields, name, &tag_type)?;
+                    let implementation = serialize_named(input, &fields, name, &tag_type)?;
                     let field_ident = fields
                         .named
                         .iter()
@@ -50,7 +46,7 @@ pub fn derive(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream
                         .map(|i| format!("f{}", i))
                         .map(|id| Ident::new(&id, Span::call_site()))
                         .collect::<Vec<_>>();
-                    let implementation = serialize_unnamed(fields, &field_ident, name, &tag_type)?;
+                    let implementation = serialize_unnamed(input, fields, &field_ident, name, &tag_type)?;
                     quote!{
                         #ident::#var_ident(#(#field_ident),*) => {
                             #implementation
@@ -62,7 +58,7 @@ pub fn derive(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream
 
     Ok(quote!{
         const _: () = {
-            impl miniserde::Serialize for #ident {
+            impl #impl_generics miniserde::Serialize for #ident #ty_generics #where_clause {
                 fn begin(&self) -> miniserde::ser::Fragment {
                     match self {
                         #(#begin)*
@@ -102,6 +98,7 @@ fn serialize_unit(variant_name: &str, tag_type: &TagType) -> Result<TokenStream>
 }
 
 fn serialize_named(
+    input: &DeriveInput,
     fields: &FieldsNamed,
     variant_name: &str,
     tag_type: &TagType,
@@ -121,28 +118,32 @@ fn serialize_named(
         .iter()
         .map(|field| &field.ty)
         .collect::<Vec<_>>();
-    Ok(if let TagType::External = tag_type {
-        quote!{
+    let (_, _, where_clause) = input.generics.split_for_impl();
+    let wrapper_generics = bound::with_lifetime_bound(&input.generics, "'__b");
+    let (wrapper_impl_generics, wrapper_ty_generics, _) = wrapper_generics.split_for_impl();
+    let bound = parse_quote!(miniserde::Serialize);
+    let bounded_where_clause = bound::where_clause_with_bound(&input.generics, bound);
+    let cow = quote!(miniserde::export::Cow);
+    let some = quote!(miniserde::export::Some);
+    if let TagType::External = tag_type {
+        Ok(quote!{
             use miniserde::Serialize;
             #[derive(Serialize)]
-            struct __AsStruct<'__b> {
+            struct __AsStruct #wrapper_impl_generics #where_clause {
                 #(#field_ident: &'__b #field_type),*,
             }
 
-            struct __SuperMap<'__a> {
-                data: __AsStruct<'__a>,
+            struct __SuperMap #wrapper_impl_generics #where_clause {
+                data: __AsStruct #wrapper_ty_generics,
                 state: miniserde::export::usize,
             }
 
-            impl<'__a> miniserde::ser::Map for __SuperMap<'__a> {
-                fn next(&mut self) -> miniserde::export::Option<(miniserde::export::Cow<miniserde::export::str>, &dyn miniserde::Serialize)> {
+            impl #wrapper_impl_generics miniserde::ser::Map for __SuperMap #wrapper_ty_generics #bounded_where_clause {
+                fn next(&mut self) -> miniserde::export::Option<(#cow<miniserde::export::str>, &dyn miniserde::Serialize)> {
                     let __state = self.state;
                     self.state = __state + 1;
                     match __state {
-                        0 => miniserde::export::Some((
-                            miniserde::export::Cow::Borrowed(#variant_name),
-                            &self.data,
-                        )),
+                        0 => #some((#cow::Borrowed(#variant_name), &self.data)),
                         _ => miniserde::export::None,
                     }
                 }
@@ -152,39 +153,31 @@ fn serialize_named(
                 data: __AsStruct { #(#field_ident),* },
                 state: 0,
             }))
-        }
+        })
     } else {
         let (start, tag_arm) = if let TagType::Internal(ref tag) = &tag_type {
-            (
-                0usize,
-                quote!{
-                    0 => miniserde::export::Some((
-                        miniserde::export::Cow::Borrowed(#tag),
-                        &#variant_name,
-                    )),
-                },
-            )
+            (0, quote!{0 => #some((#cow::Borrowed(#tag), &#variant_name)),})
         } else {
-            (1, quote!())
+            (1usize, quote!())
         };
         let index = 1usize..;
-        quote!{
-            struct __Map<'__a> {
-                #(#field_ident: &'__a #field_type),*,
+        Ok(quote!{
+            struct __Map #wrapper_impl_generics {
+                #(#field_ident: &'__b #field_type),*,
                 state: miniserde::export::usize,
             }
 
-            impl<'__a> miniserde::ser::Map for __Map<'__a> {
-                fn next(&mut self) -> miniserde::export::Option<(miniserde::export::Cow<miniserde::export::str>, &dyn miniserde::Serialize)> {
+            impl #wrapper_impl_generics miniserde::ser::Map for __Map #wrapper_ty_generics #where_clause {
+                fn next(&mut self) -> miniserde::export::Option<(#cow<miniserde::export::str>, &dyn miniserde::Serialize)> {
                     let __state = self.state;
                     self.state = __state + 1;
                     match __state {
                         #tag_arm
                         #(#index => {
-                            miniserde::export::Some((
-                                miniserde::export::Cow::Borrowed(#field_name),
-                                self.#field_ident,
-                            ))
+                            #some((
+                                    #cow::Borrowed(#field_name),
+                                    self.#field_ident,
+                                    ))
                         })*,
                         _ => miniserde::export::None,
                     }
@@ -195,11 +188,12 @@ fn serialize_named(
                 #(#field_ident),*,
                 state: #start,
             }))
-        }
-    })
+        })
+    }
 }
 
 fn serialize_unnamed(
+    input: &DeriveInput,
     fields: &FieldsUnnamed,
     field_ident: &[Ident],
     variant_name: &str,
@@ -210,61 +204,66 @@ fn serialize_unnamed(
         .iter()
         .map(|field| &field.ty)
         .collect::<Vec<_>>();
+    let (_, _, where_clause) = input.generics.split_for_impl();
+    let wrapper_generics = bound::with_lifetime_bound(&input.generics, "'__b");
+    let (wrapper_impl_generics, wrapper_ty_generics, _) = wrapper_generics.split_for_impl();
+    let bound = parse_quote!(miniserde::Serialize);
+    let bounded_where_clause = bound::where_clause_with_bound(&input.generics, bound);
     let index = 0usize..;
-    let seq = quote!{
-        struct __Seq<'__a> {
-            #(#field_ident: &'__a #field_type),*,
-            state: miniserde::export::usize,
-        }
+    let ex = quote!(miniserde::export);
+    let seq = if field_ident.len() == 1 {
+        quote!{ #(#field_ident.begin())* }
+    } else {
+        quote!{
+            struct __Seq #wrapper_impl_generics #where_clause {
+                #(#field_ident: &'__b #field_type),*,
+                state: miniserde::export::usize,
+            }
 
-        impl<'__a> miniserde::ser::Seq for __Seq<'__a> {
-            fn next(&mut self) -> miniserde::export::Option<&dyn miniserde::Serialize> {
-                let __state = self.state;
-                self.state = __state + 1;
-                match __state {
-                    #(#index => {
-                        miniserde::export::Some(self.#field_ident)
-                    })*,
-                    _ => miniserde::export::None,
+            impl #wrapper_impl_generics miniserde::ser::Seq for __Seq #wrapper_ty_generics #bounded_where_clause {
+                fn next(&mut self) -> #ex::Option<&dyn miniserde::Serialize> {
+                    let __state = self.state;
+                    self.state = __state + 1;
+                    match __state {
+                        #(#index => #ex::Some(self.#field_ident)),*,
+                        _ => #ex::None,
+                    }
                 }
             }
+
+            miniserde::ser::Fragment::Seq(#ex::Box::new(__Seq {
+                #(#field_ident),*,
+                state: 0,
+            }))
         }
     };
     Ok(if let TagType::External = tag_type {
         quote!{
-            #seq
+            struct __AsStruct #wrapper_impl_generics (#(&'__b #field_type),*) #where_clause;
 
-            struct __AsStruct<'__a> (#(&'__a #field_type),*);
-
-            impl<'__a> miniserde::Serialize for __AsStruct<'__a> {
+            impl #wrapper_impl_generics miniserde::Serialize for __AsStruct #wrapper_ty_generics #bounded_where_clause {
                 fn begin(&self) -> miniserde::ser::Fragment {
                     let __AsStruct(#(#field_ident),*) = self;
-                    miniserde::ser::Fragment::Seq(miniserde::export::Box::new(__Seq {
-                        #(#field_ident),*,
-                        state: 0,
-                    }))
+                    #seq
                 }
             }
 
-            struct __SuperMap<'__a> {
-                data: __AsStruct<'__a>,
+            struct __SuperMap #wrapper_impl_generics #where_clause {
+                data: __AsStruct #wrapper_ty_generics,
                 state: bool,
             }
 
-            impl<'__a> miniserde::ser::Map for __SuperMap<'__a> {
-                fn next(&mut self) -> miniserde::export::Option<(miniserde::export::Cow<miniserde::export::str>, &dyn miniserde::Serialize)> {
+            impl #wrapper_impl_generics miniserde::ser::Map for __SuperMap #wrapper_ty_generics #bounded_where_clause {
+                fn next(&mut self) -> miniserde::export::Option<(#ex::Cow<miniserde::export::str>, &dyn miniserde::Serialize)> {
                     if self.state {
                         return miniserde::export::None;
                     }
                     self.state = true;
-                    miniserde::export::Some((
-                            miniserde::export::Cow::Borrowed(#variant_name),
-                            &self.data,
-                    ))
+                    #ex::Some((#ex::Cow::Borrowed(#variant_name), &self.data))
                 }
             }
 
-            miniserde::ser::Fragment::Map(miniserde::export::Box::new(__SuperMap {
+            miniserde::ser::Fragment::Map(#ex::Box::new(__SuperMap {
                 data: __AsStruct ( #(#field_ident),* ),
                 state: false,
             }))
@@ -272,11 +271,6 @@ fn serialize_unnamed(
     } else {
         quote!{
             #seq
-
-            miniserde::ser::Fragment::Seq(miniserde::export::Box::new(__Seq {
-                #(#field_ident),*,
-                state: 0,
-            }))
         }
     })
 }
