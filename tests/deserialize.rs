@@ -19,3 +19,23 @@ fn test_external() {
     let expected = [A(21), B(42, "everything".to_string()), C { x: 2 }, D];
     assert_eq!(actual, expected);
 }
+
+#[test]
+fn test_adjacent() {
+    #[derive(Deserialize_enum, Debug, PartialEq)]
+    #[serde(tag = "type", content = "content")]
+    enum Adjacent {
+        A(i32),
+        #[serde(rename = "renamedB")]
+        B(i32, String),
+        C {
+            x: i32,
+        },
+        D,
+    }
+    use Adjacent::*;
+    let example = r#"[{"type":"A","content":21},{"type":"renamedB","content":[42,"everything"]},{"type":"C","content":{"x":2}},{"type":"D"}]"#;
+    let actual: Vec<Adjacent> = json::from_str(example).unwrap();
+    let expected = [A(21), B(42, "everything".to_string()), C { x: 2 }, D];
+    assert_eq!(actual, expected);
+}

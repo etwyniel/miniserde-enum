@@ -13,6 +13,7 @@ enum TagType {
     External,
     Internal(String),
     Untagged,
+    Adjacent { tag: String, content: String },
 }
 
 #[proc_macro_derive(Serialize_enum, attributes(serde))]
