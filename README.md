@@ -1,5 +1,7 @@
 # miniserde-enum
 
+[![Build](https://github.com/etwyniel/miniserde-enum/workflows/Build/badge.svg)](https://github.com/etwyniel/miniserde-enum/actions)
+
 This crate exposes derive macros for miniserde's `Serialize` and `Deserialize`
 traits on enums.
 
