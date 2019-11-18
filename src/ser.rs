@@ -1,9 +1,9 @@
 use crate::attr;
-use crate::TagType;
 use crate::bound;
+use crate::TagType;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{DataEnum, DeriveInput, Ident, Fields, FieldsNamed, FieldsUnnamed, Result, parse_quote};
+use syn::{parse_quote, DataEnum, DeriveInput, Fields, FieldsNamed, FieldsUnnamed, Ident, Result};
 
 pub fn derive(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream> {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
@@ -23,7 +23,7 @@ pub fn derive(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream
             Ok(match &variant.fields {
                 Fields::Unit => {
                     let implementation = serialize_unit(name, &tag_type)?;
-                    quote!{
+                    quote! {
                         #ident::#var_ident => {#implementation}
                     }
                 }
@@ -35,7 +35,7 @@ pub fn derive(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream
                         .map(|field| &field.ident)
                         .collect::<Vec<_>>();
 
-                    quote!{
+                    quote! {
                         #ident::#var_ident{#(#field_ident),*} => {
                             #implementation
                         }
@@ -46,17 +46,19 @@ pub fn derive(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream
                         .map(|i| format!("f{}", i))
                         .map(|id| Ident::new(&id, Span::call_site()))
                         .collect::<Vec<_>>();
-                    let implementation = serialize_unnamed(input, fields, &field_ident, name, &tag_type)?;
-                    quote!{
+                    let implementation =
+                        serialize_unnamed(input, fields, &field_ident, name, &tag_type)?;
+                    quote! {
                         #ident::#var_ident(#(#field_ident),*) => {
                             #implementation
                         }
                     }
                 }
             })
-        }).collect::<Result<Vec<_>>>()?;
+        })
+        .collect::<Result<Vec<_>>>()?;
 
-    Ok(quote!{
+    Ok(quote! {
         const _: () = {
             impl #impl_generics miniserde::Serialize for #ident #ty_generics #where_clause {
                 fn begin(&self) -> miniserde::ser::Fragment {
@@ -71,7 +73,7 @@ pub fn derive(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream
 
 fn serialize_unit(variant_name: &str, tag_type: &TagType) -> Result<TokenStream> {
     Ok(if let TagType::Internal(tag) = &tag_type {
-        quote!{
+        quote! {
             struct __Map {
                 state: miniserde::export::usize,
             }
@@ -93,7 +95,7 @@ fn serialize_unit(variant_name: &str, tag_type: &TagType) -> Result<TokenStream>
             miniserde::ser::Fragment::Map(miniserde::export::Box::new(__Map {state: 0}))
         }
     } else {
-        quote!{miniserde::ser::Fragment::Str(miniserde::export::Cow::Borrowed(#variant_name))}
+        quote! {miniserde::ser::Fragment::Str(miniserde::export::Cow::Borrowed(#variant_name))}
     })
 }
 
@@ -126,7 +128,7 @@ fn serialize_named(
     let cow = quote!(miniserde::export::Cow);
     let some = quote!(miniserde::export::Some);
     if let TagType::External = tag_type {
-        Ok(quote!{
+        Ok(quote! {
             use miniserde::Serialize;
             #[derive(Serialize)]
             struct __AsStruct #wrapper_impl_generics #where_clause {
@@ -156,12 +158,15 @@ fn serialize_named(
         })
     } else {
         let (start, tag_arm) = if let TagType::Internal(ref tag) = &tag_type {
-            (0, quote!{0 => #some((#cow::Borrowed(#tag), &#variant_name)),})
+            (
+                0,
+                quote! {0 => #some((#cow::Borrowed(#tag), &#variant_name)),},
+            )
         } else {
             (1usize, quote!())
         };
         let index = 1usize..;
-        Ok(quote!{
+        Ok(quote! {
             struct __Map #wrapper_impl_generics {
                 #(#field_ident: &'__b #field_type),*,
                 state: miniserde::export::usize,
@@ -212,9 +217,9 @@ fn serialize_unnamed(
     let index = 0usize..;
     let ex = quote!(miniserde::export);
     let seq = if field_ident.len() == 1 {
-        quote!{ #(#field_ident.begin())* }
+        quote! { #(#field_ident.begin())* }
     } else {
-        quote!{
+        quote! {
             struct __Seq #wrapper_impl_generics #where_clause {
                 #(#field_ident: &'__b #field_type),*,
                 state: miniserde::export::usize,
@@ -238,7 +243,7 @@ fn serialize_unnamed(
         }
     };
     Ok(if let TagType::External = tag_type {
-        quote!{
+        quote! {
             struct __AsStruct #wrapper_impl_generics (#(&'__b #field_type),*) #where_clause;
 
             impl #wrapper_impl_generics miniserde::Serialize for __AsStruct #wrapper_ty_generics #bounded_where_clause {
@@ -269,7 +274,7 @@ fn serialize_unnamed(
             }))
         }
     } else {
-        quote!{
+        quote! {
             #seq
         }
     })

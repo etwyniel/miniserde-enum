@@ -1,15 +1,21 @@
 use crate::attr;
-use crate::TagType;
 use crate::bound;
+use crate::TagType;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{DataEnum, DeriveInput, Ident, Error, Fields, FieldsUnnamed, Result, parse_quote, Variant};
+use syn::{
+    parse_quote, DataEnum, DeriveInput, Error, Fields, FieldsNamed, FieldsUnnamed, Ident, Result,
+    Variant,
+};
 
 pub fn derive(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream> {
     let tag_type = attr::tag_type(&input.attrs, &enumeration)?;
     match &tag_type {
         TagType::External => deserialize_external(input, enumeration),
-        _ => Err(Error::new(Span::call_site(), "Only externally tagged enums are supported")),
+        _ => Err(Error::new(
+            Span::call_site(),
+            "Only externally tagged enums are supported",
+        )),
     }
 }
 
@@ -22,13 +28,22 @@ pub fn deserialize_external(input: &DeriveInput, enumeration: &DataEnum) -> Resu
     let bound = parse_quote!(miniserde::Deserialize);
     let bounded_where_clause = bound::where_clause_with_bound(&input.generics, bound);
 
-    let (unit_variants, struct_variants): (Vec<_>, Vec<_>) = enumeration
-        .variants
-        .iter()
-        .partition(|v| if let Fields::Unit = &v.fields {true} else {false});
+    let (unit_variants, struct_variants): (Vec<_>, Vec<_>) =
+        enumeration.variants.iter().partition(|v| {
+            if let Fields::Unit = &v.fields {
+                true
+            } else {
+                false
+            }
+        });
     let struct_names = struct_variants
         .iter()
-        .map(|variant| Ident::new(&format!("__{}_{}_Struct", ident, variant.ident), Span::call_site()))
+        .map(|variant| {
+            Ident::new(
+                &format!("__{}_{}_Struct", ident, variant.ident),
+                Span::call_site(),
+            )
+        })
         .collect::<Vec<_>>();
     let struct_variant_names = struct_variants
         .iter()
@@ -44,17 +59,14 @@ pub fn deserialize_external(input: &DeriveInput, enumeration: &DataEnum) -> Resu
         .zip(struct_names.iter())
         .map(|(variant, ident)| variant_as_struct(variant, ident, &input.ident))
         .collect::<Result<Vec<_>>>()?;
-    let unit_variant_idents = unit_variants
-        .iter()
-        .map(|v| &v.ident)
-        .collect::<Vec<_>>();
+    let unit_variant_idents = unit_variants.iter().map(|v| &v.ident).collect::<Vec<_>>();
     let unit_variant_names = unit_variants
         .iter()
         .cloned()
         .map(attr::name_of_variant)
         .collect::<Result<Vec<_>>>()?;
 
-    Ok(quote!{
+    Ok(quote! {
         const _: () = {
             struct __Visitor #impl_generics #where_clause {
                 __out: miniserde::export::Option<#ident #ty_generics>,
@@ -123,21 +135,34 @@ pub fn deserialize_external(input: &DeriveInput, enumeration: &DataEnum) -> Resu
     })
 }
 
-pub fn variant_as_struct(variant: &Variant, ident: &Ident, enum_ident: &Ident) -> Result<TokenStream> {
+pub fn variant_as_struct(
+    variant: &Variant,
+    ident: &Ident,
+    enum_ident: &Ident,
+) -> Result<TokenStream> {
+    match &variant.fields {
+        Fields::Named(fields) => named_fields_as_struct(variant, fields, ident, enum_ident),
+        Fields::Unnamed(fields) => unnamed_fields_as_struct(variant, fields, ident, enum_ident),
+        _ => unreachable!(),
+    }
+}
+
+pub fn named_fields_as_struct(
+    variant: &Variant,
+    fields: &FieldsNamed,
+    ident: &Ident,
+    enum_ident: &Ident,
+) -> Result<TokenStream> {
     let variant_ident = &variant.ident;
-    let as_enum = match &variant.fields {
-        Fields::Named(fields) => {
-            let fieldname = fields.named.iter().map(|f| &f.ident).collect::<Vec<_>>();
-            quote!{
-                #enum_ident::#variant_ident {
-                    #(
-                        #fieldname: self.#fieldname,
+    let as_enum = {
+        let fieldname = fields.named.iter().map(|f| &f.ident).collect::<Vec<_>>();
+        quote! {
+            #enum_ident::#variant_ident {
+                #(
+                    #fieldname: self.#fieldname,
                     )*
-                }
             }
         }
-        Fields::Unnamed(fields) => return unnamed_fields_as_struct(variant, fields, ident, enum_ident),
-        _ => quote!(unimplemented!()),
     };
     let as_struct = syn::ItemStruct {
         attrs: variant.attrs.clone(),
@@ -148,7 +173,7 @@ pub fn variant_as_struct(variant: &Variant, ident: &Ident, enum_ident: &Ident) -
         fields: variant.fields.clone(),
         semi_token: None,
     };
-    Ok(quote!{
+    Ok(quote! {
         #[derive(Deserialize)]
         #as_struct
 
@@ -160,23 +185,25 @@ pub fn variant_as_struct(variant: &Variant, ident: &Ident, enum_ident: &Ident) -
     })
 }
 
-pub fn unnamed_fields_as_struct(variant: &Variant, fields: &FieldsUnnamed, ident: &Ident, enum_ident: &Ident) -> Result<TokenStream> {
+pub fn unnamed_fields_as_struct(
+    variant: &Variant,
+    fields: &FieldsUnnamed,
+    ident: &Ident,
+    enum_ident: &Ident,
+) -> Result<TokenStream> {
     let variant_ident = &variant.ident;
     let field_idents = (0..fields.unnamed.len())
         .map(|x| Ident::new(&format!("__f{}", x), Span::call_site()))
         .collect::<Vec<_>>();
-    let field_types = fields.unnamed
-        .iter()
-        .map(|f| &f.ty)
-        .collect::<Vec<_>>();
-    let as_struct = quote!{
+    let field_types = fields.unnamed.iter().map(|f| &f.ty).collect::<Vec<_>>();
+    let as_struct = quote! {
         struct #ident {
             #(#field_idents: #field_types,)*
         }
     };
     let de_impl = if fields.unnamed.len() == 1 {
         let ty = field_types[0];
-        quote!{
+        quote! {
             impl miniserde::Deserialize for #ident {
                 fn begin(__out: &mut miniserde::export::Option<Self>) -> &mut dyn miniserde::de::Visitor {
                     <#ty as miniserde::Deserialize>::begin(unsafe {&mut *{__out as *mut miniserde::export::Option<Self> as *mut miniserde::export::Option<#ty>}})
@@ -185,7 +212,7 @@ pub fn unnamed_fields_as_struct(variant: &Variant, fields: &FieldsUnnamed, ident
         }
     } else {
         let index = 0usize..;
-        quote!{
+        quote! {
             struct __Visitor {
                 __out: miniserde::export::Option<#ident>,
             }
@@ -239,7 +266,7 @@ pub fn unnamed_fields_as_struct(variant: &Variant, fields: &FieldsUnnamed, ident
             }
         }
     };
-    Ok(quote!{
+    Ok(quote! {
         #as_struct
 
         impl #ident {

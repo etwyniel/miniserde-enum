@@ -1,9 +1,9 @@
 extern crate proc_macro;
 
 pub(crate) mod attr;
-mod ser;
-mod de;
 mod bound;
+mod de;
+mod ser;
 
 use std::convert::From;
 use syn::{parse_macro_input, Data, DeriveInput, Error};

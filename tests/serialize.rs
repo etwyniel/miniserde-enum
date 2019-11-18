@@ -63,11 +63,11 @@ fn test_untagged() {
 fn generic_named() {
     #[derive(Serialize_enum)]
     enum Gen<T: Serialize> {
-        A{t: T},
+        A { t: T },
         B,
     }
     use Gen::*;
-    let example = [A{t: "abc"}, B];
+    let example = [A { t: "abc" }, B];
     let actual = json::to_string(&example[..]);
     let expected = r#"[{"A":{"t":"abc"}},"B"]"#;
     assert_eq!(actual, expected);
