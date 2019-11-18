@@ -57,6 +57,15 @@ assert_eq!(actual, expected);
 More examples can be found in the [tests](https://github.com/etwyniel/miniserde-enum/tree/master/tests)
 directory.
 
+## Limitations
+
+Deserializing internally tagged enums and adjacently tagged enums requires
+the tag to be the first key in the object, otherwise from\_str will return
+an error.
+
+Additionally, not every enum representation is currently supported
+(see [TODO](#TODO)).
+
 ## TODO
 
 - Serialization:
@@ -66,9 +75,9 @@ directory.
   - Adjacently tagged enums
 - Deserialization
   - ~~Externally tagged enums~~
-  - Internally tagged enums
+  - ~~Internally tagged enums~~
   - Untagged enums
-  - Adjacently tagged enums
+  - ~~Adjacently tagged enums~~
 
 
 <br>
