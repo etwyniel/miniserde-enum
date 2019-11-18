@@ -39,3 +39,22 @@ fn test_adjacent() {
     let expected = [A(21), B(42, "everything".to_string()), C { x: 2 }, D];
     assert_eq!(actual, expected);
 }
+
+#[test]
+fn test_internal() {
+    #[derive(Deserialize_enum, Debug, PartialEq)]
+    #[serde(tag = "type")]
+    enum Internal {
+        #[serde(rename = "renamedB")]
+        B,
+        C {
+            x: i32,
+        },
+        D,
+    }
+    use Internal::*;
+    let example = r#"[{"type":"renamedB"},{"type":"C","x":2},{"type":"D"}]"#;
+    let actual: Vec<Internal> = json::from_str(example).unwrap();
+    let expected = [B, C { x: 2 }, D];
+    assert_eq!(actual, expected);
+}
