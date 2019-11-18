@@ -3,7 +3,7 @@ use crate::TagType;
 use crate::bound;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{DataEnum, DeriveInput, Ident, Error, Fields, FieldsNamed, FieldsUnnamed, Result, parse_quote};
+use syn::{DataEnum, DeriveInput, Ident, Fields, FieldsNamed, FieldsUnnamed, Result, parse_quote};
 
 pub fn derive(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream> {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();

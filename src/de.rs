@@ -3,23 +3,18 @@ use crate::TagType;
 use crate::bound;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{DataEnum, DeriveInput, Ident, Error, Fields, FieldsNamed, FieldsUnnamed, Result, parse_quote, Variant};
+use syn::{DataEnum, DeriveInput, Ident, Error, Fields, FieldsUnnamed, Result, parse_quote, Variant};
 
 pub fn derive(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream> {
     let tag_type = attr::tag_type(&input.attrs, &enumeration)?;
     match &tag_type {
         TagType::External => deserialize_external(input, enumeration),
-        _ => return Err(Error::new(Span::call_site(), "Only externally tagged enums are supported")),
+        _ => Err(Error::new(Span::call_site(), "Only externally tagged enums are supported")),
     }
 }
 
 pub fn deserialize_external(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream> {
     let ident = &input.ident;
-    let names = enumeration
-        .variants
-        .iter()
-        .map(attr::name_of_variant)
-        .collect::<Result<Vec<_>>>()?;
 
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let wrapper_generics = bound::with_lifetime_bound(&input.generics, "'__a");
@@ -27,19 +22,20 @@ pub fn deserialize_external(input: &DeriveInput, enumeration: &DataEnum) -> Resu
     let bound = parse_quote!(miniserde::Deserialize);
     let bounded_where_clause = bound::where_clause_with_bound(&input.generics, bound);
 
-    let (struct_variants, other_variants): (Vec<_>, Vec<_>) = enumeration
+    let (unit_variants, struct_variants): (Vec<_>, Vec<_>) = enumeration
         .variants
         .iter()
-        .partition(|v| if let Fields::Named(_) = &v.fields {true} else {false});
-    let (tuple_variants, unit_variants): (Vec<_>, Vec<_>) = other_variants
-                                          .into_iter()
-                                          .partition(|v| if let Fields::Unnamed(_) = &v.fields {true} else {false});
-
+        .partition(|v| if let Fields::Unit = &v.fields {true} else {false});
     let struct_names = struct_variants
         .iter()
-        .map(|variant| Ident::new(&format!("__{}_{}_Struct", input.ident, variant.ident), Span::call_site()))
+        .map(|variant| Ident::new(&format!("__{}_{}_Struct", ident, variant.ident), Span::call_site()))
         .collect::<Vec<_>>();
-    let variant_names = struct_variants
+    let struct_variant_names = struct_variants
+        .iter()
+        .cloned()
+        .map(attr::name_of_variant)
+        .collect::<Result<Vec<_>>>()?;
+    let struct_variant_ident = struct_variants
         .iter()
         .map(|variant| &variant.ident)
         .collect::<Vec<_>>();
@@ -50,13 +46,11 @@ pub fn deserialize_external(input: &DeriveInput, enumeration: &DataEnum) -> Resu
         .collect::<Result<Vec<_>>>()?;
     let unit_variant_idents = unit_variants
         .iter()
-        .filter(|v| if let Fields::Unit = &v.fields {true} else {false})
         .map(|v| &v.ident)
         .collect::<Vec<_>>();
     let unit_variant_names = unit_variants
         .iter()
         .cloned()
-        .filter(|v| if let Fields::Unit = &v.fields {true} else {false})
         .map(attr::name_of_variant)
         .collect::<Result<Vec<_>>>()?;
 
@@ -82,7 +76,7 @@ pub fn deserialize_external(input: &DeriveInput, enumeration: &DataEnum) -> Resu
                 fn map(&mut self) -> miniserde::Result<miniserde::export::Box<dyn miniserde::de::Map + '_>> {
                     Ok(miniserde::export::Box::new(__State{
                         __out: &mut self.__out,
-                        #(#variant_names: None,)*
+                        #(#struct_variant_ident: None,)*
                     }))
                 }
 
@@ -99,7 +93,7 @@ pub fn deserialize_external(input: &DeriveInput, enumeration: &DataEnum) -> Resu
 
             #[allow(non_snake_case)]
             struct __State #wrapper_impl_generics #where_clause {
-                #(#variant_names: miniserde::export::Option<#struct_names>,)*
+                #(#[allow(non_snake_case)] #struct_variant_ident: miniserde::export::Option<#struct_names>,)*
                 __out: &'__a mut miniserde::export::Option<#ident #ty_generics>,
             }
 
@@ -109,7 +103,7 @@ pub fn deserialize_external(input: &DeriveInput, enumeration: &DataEnum) -> Resu
                 fn key(&mut self, k: &miniserde::export::str) -> miniserde::Result<&mut dyn miniserde::de::Visitor> {
                     match k {
                         #(
-                            #names => miniserde::export::Ok(#struct_names::begin(&mut self.#variant_names)),
+                            #struct_variant_names => miniserde::export::Ok(#struct_names::begin(&mut self.#struct_variant_ident)),
                         )*
                             _ => miniserde::export::Ok(miniserde::de::Visitor::ignore()),
                     }
@@ -117,7 +111,7 @@ pub fn deserialize_external(input: &DeriveInput, enumeration: &DataEnum) -> Resu
 
                 fn finish(&mut self) -> miniserde::Result<()> {
                     #(
-                        if let Some(val) = self.#variant_names.take() {
+                        if let Some(val) = self.#struct_variant_ident.take() {
                             *self.__out = miniserde::export::Some(val.as_enum());
                             return miniserde::export::Ok(());
                         }
@@ -134,7 +128,6 @@ pub fn variant_as_struct(variant: &Variant, ident: &Ident, enum_ident: &Ident) -
     let as_enum = match &variant.fields {
         Fields::Named(fields) => {
             let fieldname = fields.named.iter().map(|f| &f.ident).collect::<Vec<_>>();
-            let fieldty = fields.named.iter().map(|f| &f.ty);
             quote!{
                 #enum_ident::#variant_ident {
                     #(
@@ -143,6 +136,7 @@ pub fn variant_as_struct(variant: &Variant, ident: &Ident, enum_ident: &Ident) -
                 }
             }
         }
+        Fields::Unnamed(fields) => return unnamed_fields_as_struct(variant, fields, ident, enum_ident),
         _ => quote!(unimplemented!()),
     };
     let as_struct = syn::ItemStruct {
@@ -163,5 +157,72 @@ pub fn variant_as_struct(variant: &Variant, ident: &Ident, enum_ident: &Ident) -
                 #as_enum
             }
         }
+    })
+}
+
+pub fn unnamed_fields_as_struct(variant: &Variant, fields: &FieldsUnnamed, ident: &Ident, enum_ident: &Ident) -> Result<TokenStream> {
+    let variant_ident = &variant.ident;
+    let field_idents = (0..fields.unnamed.len())
+        .map(|x| Ident::new(&format!("__f{}", x), Span::call_site()))
+        .collect::<Vec<_>>();
+    let field_types = fields.unnamed
+        .iter()
+        .map(|f| &f.ty)
+        .collect::<Vec<_>>();
+    let as_struct = quote!{
+        struct #ident {
+            #(#field_idents: Option<#field_types>,)*
+        }
+    };
+    let de_impl = if fields.unnamed.len() == 1 {
+        let ty = field_types[0];
+        quote!{
+            impl miniserde::Deserialize for #ident {
+                fn begin(__out: &mut miniserde::export::Option<Self>) -> &mut dyn miniserde::de::Visitor {
+                    <#ty as miniserde::Deserialize>::begin(unsafe {&mut *{__out as *mut miniserde::export::Option<Self> as *mut miniserde::export::Option<#ty>}})
+                }
+            }
+        }
+    } else {
+        quote!{
+            struct __Visitor {
+                __out: miniserde::export::Option<#ident>,
+            }
+
+            impl miniserde::Deserialize for #ident {
+                fn begin(__out: &mut miniserde::export::Option<Self>) -> &mut dyn miniserde::de::Visitor {
+                    unsafe {
+                        &mut *{
+                            __out as *mut miniserde::export::Option<Self>
+                                as *mut __Visitor
+                        }
+                    }
+                }
+            }
+
+            impl miniserde::de::Visitor for __Visitor {
+
+            }
+        }
+    };
+    let as_enum = if fields.unnamed.len() == 1 {
+        quote!{
+            #enum_ident::#variant_ident(self.__f0.unwrap())
+        }
+    } else {
+        quote!(unimplemented!())
+    };
+    Ok(quote!{
+        #as_struct
+
+        impl #ident {
+            fn as_enum(self) -> #enum_ident {
+                #as_enum
+            }
+        }
+
+        const _: () = {
+            #de_impl
+        };
     })
 }
