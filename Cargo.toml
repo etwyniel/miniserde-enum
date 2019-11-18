@@ -1,6 +1,6 @@
 [package]
 name = "miniserde-enum"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Aymeric Beringer <aymeric.beringer@epita.fr>"]
 edition = "2018"
 description = "Derive macros for miniserde on enums"
