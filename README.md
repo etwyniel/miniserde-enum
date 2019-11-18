@@ -57,7 +57,7 @@ assert_eq!(actual, expected);
 More examples can be found in the [tests](https://github.com/etwyniel/miniserde-enum/tree/master/tests)
 directory.
 
-# TODO
+## TODO
 
 - Serialization:
   - ~~Externally tagged enums~~
@@ -69,3 +69,21 @@ directory.
   - Internally tagged enums
   - Untagged enums
   - Adjacently tagged enums
+
+
+<br>
+
+#### License
+
+<sup>
+Licensed under either of <a href="LICENSE-APACHE">Apache License, Version
+2.0</a> or <a href="LICENSE-MIT">MIT license</a> at your option.
+</sup>
+
+<br>
+
+<sub>
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in Serde by you, as defined in the Apache-2.0 license, shall be
+dual licensed as above, without any additional terms or conditions.
+</sub>
