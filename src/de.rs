@@ -171,7 +171,7 @@ pub fn unnamed_fields_as_struct(variant: &Variant, fields: &FieldsUnnamed, ident
         .collect::<Vec<_>>();
     let as_struct = quote!{
         struct #ident {
-            #(#field_idents: Option<#field_types>,)*
+            #(#field_idents: #field_types,)*
         }
     };
     let de_impl = if fields.unnamed.len() == 1 {
@@ -184,6 +184,7 @@ pub fn unnamed_fields_as_struct(variant: &Variant, fields: &FieldsUnnamed, ident
             }
         }
     } else {
+        let index = 0usize..;
         quote!{
             struct __Visitor {
                 __out: miniserde::export::Option<#ident>,
@@ -201,23 +202,49 @@ pub fn unnamed_fields_as_struct(variant: &Variant, fields: &FieldsUnnamed, ident
             }
 
             impl miniserde::de::Visitor for __Visitor {
+                fn seq(&mut self) -> miniserde::Result<miniserde::export::Box<dyn miniserde::de::Seq + '_>> {
+                    Ok(miniserde::export::Box::new(__State {
+                        #(#field_idents: None,)*
+                        __state: 0,
+                        __out: &mut self.__out,
+                    }))
+                }
+            }
 
+            struct __State<'a> {
+                #(#field_idents: miniserde::export::Option<#field_types>,)*
+                __state: usize,
+                __out: &'a mut miniserde::export::Option<#ident>,
+            }
+
+            impl<'a> miniserde::de::Seq for __State<'a> {
+                fn element(&mut self) -> miniserde::Result<&mut dyn miniserde::de::Visitor> {
+                    let state = self.__state;
+                    self.__state += 1;
+                    match state {
+                        #(#index => Ok(<#field_types as miniserde::Deserialize>::begin(&mut self.#field_idents)),)*
+                        _ => Err(miniserde::Error),
+                    }
+                }
+
+                fn finish(&mut self) -> miniserde::Result<()> {
+                    *self.__out = Some(#ident{
+                        #(#field_idents: match self.#field_idents.take() {
+                            Some(f) => f,
+                            None => return Err(miniserde::Error),
+                        },)*
+                    });
+                    Ok(())
+                }
             }
         }
-    };
-    let as_enum = if fields.unnamed.len() == 1 {
-        quote!{
-            #enum_ident::#variant_ident(self.__f0.unwrap())
-        }
-    } else {
-        quote!(unimplemented!())
     };
     Ok(quote!{
         #as_struct
 
         impl #ident {
             fn as_enum(self) -> #enum_ident {
-                #as_enum
+                #enum_ident::#variant_ident(#(self.#field_idents,)*)
             }
         }
 
