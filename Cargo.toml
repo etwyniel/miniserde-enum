@@ -5,7 +5,7 @@ authors = ["Aymeric Beringer <aymeric.beringer@epita.fr>"]
 edition = "2018"
 description = "Derive macros for miniserde on enums"
 license = "MIT OR Apache-2-0"
-readme = "README.MD"
+readme = "README.md"
 repository = "https://github.com/etwyniel/miniserde-enum"
 keywords = ["miniserde", "enum"]
 
