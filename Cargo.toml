@@ -3,6 +3,11 @@ name = "miniserde-enum"
 version = "0.1.0"
 authors = ["Aymeric Beringer <aymeric.beringer@epita.fr>"]
 edition = "2018"
+description = "Derive macros for miniserde on enums"
+license = "MIT OR Apache-2-0"
+readme = "README.MD"
+repository = "https://github.com/etwyniel/miniserde-enum"
+keywords = ["miniserde", "enum"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
