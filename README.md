@@ -6,9 +6,9 @@ traits on enums.
 The goal of this crate is to provide enum support like that of Serde for
 miniserde (see [Serde's list of enum representations](https://serde.rs/enum-representations.html)).
 
-# Examples
+## Examples
 
-## Deserializing an externally tagged enum
+### Deserializing an externally tagged enum
 ```rust
 use miniserde::{Deserialize, json};
 use miniserde_enum::Deserialize_enum;
@@ -31,7 +31,7 @@ let expected = [A(21), B(42, "everything".to_string()), C { x: 2 }, D];
 assert_eq!(actual, expected);
 ```
 
-## Serializing an internally tagged enum
+### Serializing an internally tagged enum
 ```rust
 use miniserde::{json, Serialize};
 use miniserde_enum::Serialize_enum;
