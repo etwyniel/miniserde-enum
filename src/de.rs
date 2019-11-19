@@ -12,7 +12,9 @@ pub fn derive(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream
     let tag_type = attr::tag_type(&input.attrs, &enumeration)?;
     match &tag_type {
         TagType::External => deserialize_external(input, enumeration),
-        TagType::Adjacent { tag, content } => deserialize_adjacent(input, enumeration, tag, content),
+        TagType::Adjacent { tag, content } => {
+            deserialize_adjacent(input, enumeration, tag, content)
+        }
         TagType::Internal(tag) => deserialize_internal(input, enumeration, tag),
         _ => Err(Error::new(
             Span::call_site(),
@@ -33,13 +35,13 @@ struct EnumVariants {
 impl EnumVariants {
     fn new(ident: &Ident, enumeration: &DataEnum) -> Result<EnumVariants> {
         let (unit_variants, struct_variants): (Vec<_>, Vec<_>) =
-                               enumeration.variants.iter().partition(|v| {
-                                   if let Fields::Unit = &v.fields {
-                                       true
-                                   } else {
-                                       false
-                                   }
-                               });
+            enumeration.variants.iter().partition(|v| {
+                if let Fields::Unit = &v.fields {
+                    true
+                } else {
+                    false
+                }
+            });
         let struct_variant_names = struct_variants
             .iter()
             .cloned()
@@ -51,9 +53,9 @@ impl EnumVariants {
                 Ident::new(
                     &format!("__{}_{}_Struct", ident, variant.ident),
                     Span::call_site(),
-                    )
+                )
             })
-        .collect::<Vec<_>>();
+            .collect::<Vec<_>>();
         let structs = struct_variants
             .iter()
             .zip(struct_names.iter())
@@ -63,7 +65,10 @@ impl EnumVariants {
             .iter()
             .map(|variant| variant.ident.clone())
             .collect::<Vec<_>>();
-        let unit_variant_idents = unit_variants.iter().map(|v| v.ident.clone()).collect::<Vec<_>>();
+        let unit_variant_idents = unit_variants
+            .iter()
+            .map(|v| v.ident.clone())
+            .collect::<Vec<_>>();
         let unit_variant_names = unit_variants
             .iter()
             .cloned()
@@ -80,7 +85,11 @@ impl EnumVariants {
     }
 }
 
-pub fn deserialize_internal(input: &DeriveInput, enumeration: &DataEnum, tag: &str) -> Result<TokenStream> {
+pub fn deserialize_internal(
+    input: &DeriveInput,
+    enumeration: &DataEnum,
+    tag: &str,
+) -> Result<TokenStream> {
     let ident = &input.ident;
     let EnumVariants {
         struct_variant_names,
@@ -171,7 +180,12 @@ pub fn deserialize_internal(input: &DeriveInput, enumeration: &DataEnum, tag: &s
     })
 }
 
-pub fn deserialize_adjacent(input: &DeriveInput, enumeration: &DataEnum, tag: &str, content: &str) -> Result<TokenStream> {
+pub fn deserialize_adjacent(
+    input: &DeriveInput,
+    enumeration: &DataEnum,
+    tag: &str,
+    content: &str,
+) -> Result<TokenStream> {
     let ident = &input.ident;
     let EnumVariants {
         struct_variant_names,

@@ -30,7 +30,10 @@ pub(crate) fn tag_type(attrs: &[Attribute], enumeration: &DataEnum) -> Result<Ta
                     } else if value.path.is_ident("content") {
                         if let Lit::Str(s) = &value.lit {
                             if content.is_some() {
-                                return Err(Error::new_spanned(meta, "duplicate content attribute"));
+                                return Err(Error::new_spanned(
+                                    meta,
+                                    "duplicate content attribute",
+                                ));
                             }
                             content = Some(s.value());
                             continue;
@@ -60,14 +63,19 @@ pub(crate) fn tag_type(attrs: &[Attribute], enumeration: &DataEnum) -> Result<Ta
         (Some(tag), None) => {
             for fields in enumeration.variants.iter().map(|v| &v.fields) {
                 if let Fields::Unnamed(_) = fields {
-                    return Err(Error::new_spanned(fields,
-                                                  "enums containing tuple variants cannot be internally tagged"));
+                    return Err(Error::new_spanned(
+                        fields,
+                        "enums containing tuple variants cannot be internally tagged",
+                    ));
                 }
             }
             Ok(TagType::Internal(tag))
         }
         (Some(tag), Some(content)) => Ok(TagType::Adjacent { tag, content }),
-        _ => Err(Error::new_spanned(&attrs[0], "Invalid enum representation."))
+        _ => Err(Error::new_spanned(
+            &attrs[0],
+            "Invalid enum representation.",
+        )),
     }
 }
 
