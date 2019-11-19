@@ -132,7 +132,7 @@ fn serialize_named(
             use miniserde::Serialize;
             #[derive(Serialize)]
             struct __AsStruct #wrapper_impl_generics #where_clause {
-                #(#field_ident: &'__b #field_type),*,
+                #(#field_ident: &'__b #field_type,)*
             }
 
             struct __SuperMap #wrapper_impl_generics #where_clause {
@@ -197,6 +197,7 @@ fn serialize_named(
     }
 }
 
+#[allow(clippy::cognitive_complexity)]
 fn serialize_unnamed(
     input: &DeriveInput,
     fields: &FieldsUnnamed,
